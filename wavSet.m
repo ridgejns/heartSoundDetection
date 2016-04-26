@@ -16,13 +16,13 @@ classdef wavSet < handle
     methods
         function wavset = wavSet(wavfolderpath, varargin)
             if nargin==0||nargin>2
-                error('Invalid parameter.')
+                error('invalid input')
             end
             % path is must a folder, not file
             if(~isdir(wavfolderpath))
-                error('Invalid file folder.')
+                error('invalid file folder')
             end
-
+%             wavset = zeros(1);
             if nargin==1
                 wavpath = fullfile(wavfolderpath,'*.wav');
                 [~,wavset.Description,~] = fileparts(wavfolderpath);
@@ -43,7 +43,8 @@ classdef wavSet < handle
                         ws = wavSet(paths{i});
                         if(ws.Count > 0)
                             wavdircnt = wavdircnt+1;
-                            wavset(wavdircnt) = ws;
+%                             append(wavset,ws);
+                            wavset(wavdircnt) = ws; %#ok<AGROW>
                         end
                     end
                 else
