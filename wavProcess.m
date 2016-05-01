@@ -86,7 +86,7 @@ classdef wavProcess < handle
             end
         end
 
-        function ftsig(wp)
+        function ftsig(wp,remain)
             wp.ds_fft = cell(wp.sigsNum,1);
             wp.ds_fft_env = cell(wp.sigsNum,1);
             wp.dn_fft = cell(wp.sigsNum,1);
@@ -99,18 +99,21 @@ classdef wavProcess < handle
 %               new sampling rate
                 sRtemp = wp.deSR(i);
                 K = length(dsstemp);
-                wp.maxFreq(i) = sRtemp/2;
-                Fftsig = abs(fftshift(fft(dsstemp,K)));
-                wp.ds_fft{i} = Fftsig(fix(K/2):end);
+                wp.maxFreq(i) = sRtemp*remain/2;
+                st = 1;
+                ed = fix(K*remain/2);
+                evrms = fix(wp.maxFreq(i)/10);
+                Fftsig = abs(fft(dsstemp,K));
+                wp.ds_fft{i} = Fftsig(st:ed);
                 wp.ds_fft{i} = wp.ds_fft{i}/K;
-                wp.ds_fft_env{i} = envelope(wp.ds_fft{i},80,'peak');
+                wp.ds_fft_env{i} = envelope(wp.ds_fft{i},evrms,'peak');
                 
 %               denoise signal
                 dnstemp = wp.denSig{i};
-                Fftsig = abs(fftshift(fft(dnstemp,K)));
-                wp.dn_fft{i} = Fftsig(fix(K/2):end);
+                Fftsig = abs(fft(dnstemp,K));
+                wp.dn_fft{i} = Fftsig(st:ed);
                 wp.dn_fft{i} = wp.dn_fft{i}/K;
-                wp.dn_fft_env{i} = envelope(wp.dn_fft{i},80,'peak');
+                wp.dn_fft_env{i} = envelope(wp.dn_fft{i},evrms,'peak');
             end
         end
         
@@ -144,16 +147,46 @@ classdef wavProcess < handle
         
         function [feature] = freqfeature(wp, segN)
             seg = zeros(segN+1,1);
-            feature = zeros(segN,wp.sigsNum);
+            feature = zeros(wp.sigsNum,segN);
             for i=1:wp.sigsNum
                 sig = wp.dn_fft{i};
                 for j=1:segN
                     len = length(sig);
                     seg(j+1) = fix(len/segN*j);
-                    feature(j,i) = sum(sig(seg(j)+1:seg(j+1)));
+                    feature(i,j) = sum(sig(seg(j)+1:seg(j+1)));
                 end
-                feature(:,i) = (feature(:,i)-min(feature(:,i)))/(max(feature(:,i))-min(feature(:,i)));
+                feature(i,:) = (feature(i,:)-min(feature(i,:)))/(max(feature(i,:))-min(feature(i,:)));
             end
+        end
+        
+        function [feature] = freqfeature2(wp,segN)
+            feature = zeros(wp.sigsNum,segN+3);
+            for i=1:wp.sigsNum
+                sig = wp.dn_fft_env{i};
+                len = length(sig);
+                freq = linspace(0,wp.maxFreq(i),len);
+                [pks,locs] = findpeaks(sig,freq,'SortStr','descend');
+%                 disp(locs(1));
+                validmask = pks>(max(pks)*0.707);
+                validN = sum(validmask);
+                if(validN >= segN+1)
+                    meanv = mean(pks(validmask));
+                    varv = var(pks(validmask));
+                else
+%                     segN = validN;
+                    meanv = mean(pks);
+                    varv = var(pks);
+                end
+                
+%                 disp(segN)
+%                 disp(locs(1:segN))
+                feature(i,:) = [locs(1:segN),meanv,varv,validN];
+%                 lenlocs = length(locs);
+%                 if(lenlocs<5)
+%                     break
+%                 end
+            end
+
         end
     end
     
@@ -178,29 +211,47 @@ classdef wavProcess < handle
                     error('invalid input');
                 end
                 drate = varargin{2};
+                remain = 1;
+            elseif nargin==3
+                ret = isa(varargin{1},'wavSet');
+                if ret
+                   wp.readsig(varargin{1});
+                else
+                    error('invalid input');
+                end
+                drate = varargin{2};
+                remain = varargin{3};
             else
                 error('too many inputs')
             end
             wp.desnsig(drate);
-            wp.ftsig();
+            wp.ftsig(remain);
             wp.tidysig();
         end
         
         function [label, feature] = extractfeature(wp,varargin)
-            disp(nargin)
+%             disp(nargin)
             if nargin==1
                 feature = wp.freqfeature(100);
                 label = cell2mat(wp.label(:,1));
                 return
             elseif nargin==3
                 for i=1:nargin-1
-                    ret1 = strncmpi(varargin{i},'frequency',4);
-                    ret2 = strcmpi(varargin{i},'time');
+                    ret1 = strcmpi(varargin{i},'freq');
+                    ret2 = strcmpi(varargin{i},'freq2');
+                    ret3 = strcmpi(varargin{i},'time');
+%                     disp(ret1)
+%                     disp(ret2)
+%                     disp(ret3)
                     if ret1
                         feature = wp.freqfeature(varargin{i+1});
                         label = cell2mat(wp.label(:,1));
                         return
                     elseif ret2
+                        feature = wp.freqfeature2(varargin{i+1});
+                        label = cell2mat(wp.label(:,1));
+                        return
+                    elseif ret3
                         error('time domain feature is developing')
                     else
                         error('invalid input')
